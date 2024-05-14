@@ -1,0 +1,5 @@
+### VARIABLE
+@URL = http://localhost:3000/api
+
+### SEARCH TRAIN
+GET {{URL}}/search/trip?from=Dhaka&to=Santahar&date=17-May-2024&class=S_CHAIR&priority_time=night
