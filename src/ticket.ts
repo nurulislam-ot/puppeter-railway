@@ -1,5 +1,11 @@
 import puppeteer from "puppeteer-extra"
 import { ElementHandle } from "puppeteer"
+
+const config = {
+  phone: "01722266531",
+  password: "your_password",
+}
+
 puppeteer.use(
   require("puppeteer-extra-plugin-user-preferences")({
     userPrefs: {
@@ -47,7 +53,7 @@ const buy_ticket = async ({ TRAIN_NAME }: BuyTicketParams) => {
     const page = await browser.newPage()
 
     await page.goto(
-      "https://eticket.railway.gov.bd/booking/train/search?fromcity=Dhaka&tocity=Santahar&doj=10-Nov-2024&class=S_CHAIR",
+      "https://eticket.railway.gov.bd/booking/train/search?fromcity=Dhaka&tocity=Santahar&doj=16-Mar-2025&class=S_CHAIR",
       {
         waitUntil: "networkidle2",
       }
@@ -96,6 +102,8 @@ const buy_ticket = async ({ TRAIN_NAME }: BuyTicketParams) => {
           book_now_buttons,
         }
 
+        console.log(trip_obj)
+
         return train_name
       })
     )
@@ -109,11 +117,11 @@ const buy_ticket = async ({ TRAIN_NAME }: BuyTicketParams) => {
     if (modal) {
       const mobileInput = await modal.$("#mobile_number")
       if (!mobileInput) throw new Error("Mobile input not found")
-      await mobileInput.type("01722266531")
+      await mobileInput.type(config.phone)
 
       const passwordInput = await modal.$("#trainAppLoginPassword")
       if (!passwordInput) throw new Error("Password input not found")
-      await passwordInput.type("Dx6ZNi29@LCjf5M")
+      await passwordInput.type(config.password)
 
       const loginButton = await modal.$('[type="submit"]')
       if (loginButton) await loginButton.click()
@@ -156,5 +164,5 @@ const buy_ticket = async ({ TRAIN_NAME }: BuyTicketParams) => {
 }
 
 buy_ticket({
-  TRAIN_NAME: "NILSAGAR EXPRESS (765)",
+  TRAIN_NAME: "PANCHAGARH EXPRESS (793)",
 })
