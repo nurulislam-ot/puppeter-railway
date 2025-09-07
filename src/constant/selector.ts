@@ -1,0 +1,10 @@
+export const TRAIN_NAME_SELECTOR = ".trip-left-info h2";
+export const ACTIVE_USER_SELECTOR = ".trip-left-info .active-trip-users p span";
+export const DEPARTURE_DATE_TIME_SELECTOR = "span.journey-date";
+export const SEAT_CLASS_CONTAINER_SELECTOR = ".single-seat-class";
+export const SEAT_TYPE_SELECTOR = "span.seat-class-name";
+export const SEAT_AVAILABILITY_SELECTOR = "span.all-seats";
+export const BOOK_NOW_BUTTON_SELECTOR = ".book-now-btn";
+export const TRIP_LEFT_INFO_SELECTOR = ".trip-left-info";
+export const TRIP_CONTAINER_SELECTOR = ".trip-container";
+export const TRIP_SELECTOR = ".trip";

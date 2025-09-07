@@ -11,6 +11,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@date-fns/tz": "^1.2.0",
+    "date-fns": "^4.1.0",
+    "node-cron": "^4.0.7",
     "puppeteer": "^22.8.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-user-preferences": "^2.4.1"

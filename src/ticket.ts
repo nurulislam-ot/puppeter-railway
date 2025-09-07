@@ -1,10 +1,42 @@
+import cron from "node-cron"
 import puppeteer from "puppeteer-extra"
 import { ElementHandle } from "puppeteer"
 
+import {
+  BOOK_NOW_BUTTON_SELECTOR,
+  SEAT_CLASS_CONTAINER_SELECTOR,
+  SEAT_TYPE_SELECTOR,
+} from "./constant/selector"
+import get_available_seat_buttons from "./get-available-seat-buttons"
+import get_bogie from "./get-bogie"
+import get_trips from "./get-trips"
+import login from "./login"
+
 const config = {
-  phone: "01722266531",
-  password: "your_password",
+  phone: process.env.USER_LOGIN_PHONE_NUMBER ?? "",
+  password: process.env.USER_LOGIN_PASSWORD ?? "",
 }
+
+cron.schedule(
+  "45 50 0 * * *",
+  async function () {
+    const config = {
+      PREFER_TRAIN_NAME: "DRUTOJAN EXPRESS (757)",
+      URL: "https://eticket.railway.gov.bd/booking/train/search?fromcity=Dhaka&tocity=Santahar&doj=25-May-2025&class=S_CHAIR",
+      SEAT_COUNT: 1,
+      PREFER_TIME_RANGE: ["20:45", "23:30"],
+      PREFER_SEAT: ["S_CHAIR"],
+    }
+    try {
+      await buy_ticket(config)
+    } catch (error) {
+      await buy_ticket(config)
+    }
+  },
+  {
+    timezone: "Asia/Dhaka",
+  }
+)
 
 puppeteer.use(
   require("puppeteer-extra-plugin-user-preferences")({
@@ -16,12 +48,6 @@ puppeteer.use(
     },
   })
 )
-
-function delay(time: number) {
-  return new Promise(function (resolve) {
-    setTimeout(resolve, time)
-  })
-}
 
 interface SeatAvailabilityI {
   [seat_class: string]: string
@@ -40,10 +66,20 @@ interface TripObjectI {
 }
 
 interface BuyTicketParams {
-  TRAIN_NAME: string
+  PREFER_TRAIN_NAME: string
+  URL: string
+  SEAT_COUNT: number
+  PREFER_TIME_RANGE: [string, string]
+  PREFER_SEAT: string[]
 }
 
-const buy_ticket = async ({ TRAIN_NAME }: BuyTicketParams) => {
+const buy_ticket = async ({
+  URL,
+  SEAT_COUNT,
+  PREFER_TIME_RANGE,
+  PREFER_TRAIN_NAME,
+  PREFER_SEAT,
+}: BuyTicketParams) => {
   const trip_obj = {} as TripObjectI
 
   try {
@@ -52,103 +88,128 @@ const buy_ticket = async ({ TRAIN_NAME }: BuyTicketParams) => {
     })
     const page = await browser.newPage()
 
-    await page.goto(
-      "https://eticket.railway.gov.bd/booking/train/search?fromcity=Dhaka&tocity=Santahar&doj=16-Mar-2025&class=S_CHAIR",
-      {
-        waitUntil: "networkidle2",
-      }
-    )
+    await page.goto(URL, {
+      waitUntil: "networkidle2",
+      timeout: 0,
+    })
 
-    const trips = await page.$$("app-single-trip")
+    const trips_ = await get_trips({
+      page,
+      PREFER_TIME_RANGE: PREFER_TIME_RANGE,
+    })
 
-    await Promise.all(
-      trips.map(async (trip) => {
-        const train_name = await trip.$eval(
-          ".trip-left-info h2",
+    console.log(trips_.length, "trips found")
+
+    for (let i = 0; i < trips_.length; i++) {
+      const trip = trips_[i]
+
+      const seat_class_container = await trip.$$(SEAT_CLASS_CONTAINER_SELECTOR)
+
+      const seat_details_promises = seat_class_container.map(async (seat) => {
+        const seat_type = await seat.$eval(
+          SEAT_TYPE_SELECTOR,
           (elem) => elem.innerText
         )
-        const active_user = await trip.$eval(
-          ".trip-left-info .active-trip-users p span",
-          (elem) => elem.innerText
+
+        return seat_type
+      })
+      const seat_details = await Promise.all(seat_details_promises)
+      const S_CHAIR_INDEX = seat_details.indexOf("S_CHAIR")
+
+      if (seat_class_container[S_CHAIR_INDEX]) {
+        const book_now_btn = await seat_class_container[S_CHAIR_INDEX].$(
+          BOOK_NOW_BUTTON_SELECTOR
         )
+        if (!book_now_btn) continue
+        await book_now_btn.click()
 
-        const seat_class_container = await trip.$$(".single-seat-class")
+        await login({
+          page,
+          phone: config.phone,
+          password: config.password,
+        })
 
-        const seat_availability_obj: SeatAvailabilityI = {}
-        const book_now_buttons: BookNowButtonsI = {}
+        await book_now_btn.click()
 
-        await Promise.all(
-          seat_class_container.map(async (seat) => {
-            const book_now_el = await seat.$(".book-now-btn")
-            const seat_type = await seat.$eval(
-              "span.seat-class-name",
-              (elem) => elem.innerText
-            )
+        const selected_bogie_value = await get_bogie({
+          page,
+          already_checked_bogies: [],
+        })
+        await page.select("select#select-bogie", selected_bogie_value)
 
-            // seat_availability = seat_avl
-            const seat_availability = await seat.$eval(
-              "span.all-seats",
-              (elem) => elem.innerText
-            )
+        const available_seats = await get_available_seat_buttons({
+          page,
+        })
 
-            seat_availability_obj[seat_type] = seat_availability
-            book_now_buttons[seat_type] = book_now_el
+        // random seat selection
+        if (available_seats.seat_availability <= SEAT_COUNT)
+          throw Error("No free seats available")
+
+        const random_seat_selected_index_array = new Set<{
+          seat_index: number
+          seat_number: string
+        }>()
+
+        while (random_seat_selected_index_array.size < SEAT_COUNT) {
+          const random_index = Math.floor(
+            Math.random() * available_seats.seat_availability
+          )
+          const seat_number = await available_seats.available_seats_buttons[
+            random_index
+          ].evaluate((el) => el.innerText)
+          random_seat_selected_index_array.add({
+            seat_index: random_index,
+            seat_number,
           })
-        )
-
-        trip_obj[train_name] = {
-          active_user,
-          seat_availability: seat_availability_obj,
-          book_now_buttons,
         }
 
-        console.log(trip_obj)
-
-        return train_name
-      })
-    )
-
-    const S_CHAIR = trip_obj[TRAIN_NAME].book_now_buttons.S_CHAIR
-    if (!S_CHAIR) throw Error(`${TRAIN_NAME} S_CHAIR not found!`)
-
-    await S_CHAIR.click()
-
-    const modal = await page.waitForSelector(".login-modal-form")
-    if (modal) {
-      const mobileInput = await modal.$("#mobile_number")
-      if (!mobileInput) throw new Error("Mobile input not found")
-      await mobileInput.type(config.phone)
-
-      const passwordInput = await modal.$("#trainAppLoginPassword")
-      if (!passwordInput) throw new Error("Password input not found")
-      await passwordInput.type(config.password)
-
-      const loginButton = await modal.$('[type="submit"]')
-      if (loginButton) await loginButton.click()
+        break
+      }
     }
-    await delay(1000)
 
-    await S_CHAIR.click()
+    return
 
-    // select bogie
-    const bogie_select_el = await page.waitForSelector("select#select-bogie", {
-      timeout: 10000,
+    const selected_bogie_value = await get_bogie({
+      page,
+      already_checked_bogies: [],
     })
-    if (!bogie_select_el) throw Error("Bogie Select Element Not Found")
-
-    const selected_bogie_value = await bogie_select_el.$$eval(
-      "option",
-      (bogies) =>
-        bogies.find((bogie) => +bogie.innerText.split(" ")[2] > 0)?.value
-    )
-
-    if (!selected_bogie_value) throw Error("bogie value not find")
     await page.select("select#select-bogie", selected_bogie_value)
 
-    // now select seat
-    const free_seats = await page.$$("button.seat-available")
-    await free_seats[0].click()
-    await delay(1000)
+    const available_seats = await get_available_seat_buttons({
+      page,
+    })
+
+    // random seat selection
+    if (available_seats.seat_availability <= SEAT_COUNT)
+      throw Error("No free seats available")
+    console.log(`Total Free Seats: ${available_seats.seat_availability}`)
+
+    const random_seat_selected_index_array = new Set<{
+      seat_index: number
+      seat_number: string
+    }>()
+
+    while (random_seat_selected_index_array.size < SEAT_COUNT) {
+      const random_index = Math.floor(
+        Math.random() * available_seats.seat_availability
+      )
+      const seat_number = await available_seats.available_seats_buttons[
+        random_index
+      ].evaluate((el) => el.innerText)
+      random_seat_selected_index_array.add({
+        seat_index: random_index,
+        seat_number,
+      })
+    }
+
+    console.log(random_seat_selected_index_array)
+
+    return
+    random_seat_selected_index_array.forEach(async (seat) => {
+      await available_seats.available_seats_buttons[seat.seat_index].click()
+    })
+
+    return
 
     const continue_btn = await page.waitForSelector("button.continue-btn", {
       timeout: 10000,
@@ -158,11 +219,7 @@ const buy_ticket = async ({ TRAIN_NAME }: BuyTicketParams) => {
     await continue_btn.click()
   } catch (error) {
     if (error instanceof Error) {
-      console.error(error.message)
+      console.error(error)
     }
   }
 }
-
-buy_ticket({
-  TRAIN_NAME: "PANCHAGARH EXPRESS (793)",
-})
